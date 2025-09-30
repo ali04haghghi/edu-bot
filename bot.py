@@ -1,4 +1,4 @@
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 import sqlite3
 import os
@@ -16,20 +16,19 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def show_main_menu(bot, update):
+async def show_main_menu(update, context):
     keyboard = [
         ['👤 پروفایل من', '📚 منابع درسی'],
-        ['📅 برنامه ریزی', '📊 گزارش کار روزانه'],
-        ['🎯 ثبت نتایج آزمون', '📞 ارتباط با مشاور']
+        ['📊 گزارش کار روزانه']
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "🎊 به منوی اصلی خوش آمدید!",
         reply_markup=reply_markup
     )
 
-def start(bot, update):
+async def start(update, context):
     user_id = update.effective_user.id
     first_name = update.effective_user.first_name
     
@@ -43,11 +42,11 @@ def start(bot, update):
         if user:
             status = user['status']
             if status == 'approved':
-                show_main_menu(bot, update)
+                await show_main_menu(update, context)
             elif status == 'pending':
-                update.message.reply_text("⏳ در انتظار تأیید ادمین...")
+                await update.message.reply_text("⏳ در انتظار تأیید ادمین...")
             else:
-                update.message.reply_text("❌ حساب شما رد شده است.")
+                await update.message.reply_text("❌ حساب شما رد شده است.")
         else:
             cursor.execute(
                 "INSERT INTO users (user_id, first_name, status) VALUES (?, ?, 'pending')",
@@ -58,23 +57,23 @@ def start(bot, update):
             keyboard = [[InlineKeyboardButton("✅ تأیید کاربر", callback_data=f"approve_{user_id}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            bot.send_message(
+            await context.bot.send_message(
                 chat_id=ADMIN_ID,
                 text=f"👤 کاربر جدید:\n{first_name}",
                 reply_markup=reply_markup
             )
             
-            update.message.reply_text("✅ درخواست شما ارسال شد.")
+            await update.message.reply_text("✅ درخواست شما ارسال شد.")
         
         conn.close()
         
     except Exception as e:
         logger.error(f"Error: {e}")
-        update.message.reply_text("❌ خطا در پردازش.")
+        await update.message.reply_text("❌ خطا در پردازش.")
 
-def handle_admin_callback(bot, update):
+async def handle_admin_callback(update, context):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     try:
         data = query.data
@@ -86,11 +85,11 @@ def handle_admin_callback(bot, update):
         if data.startswith('approve'):
             cursor.execute("UPDATE users SET status = 'approved' WHERE user_id = ?", (user_id,))
             conn.commit()
-            query.edit_message_text("✅ کاربر تأیید شد.")
+            await query.edit_message_text("✅ کاربر تأیید شد.")
             
-            bot.send_message(
+            await context.bot.send_message(
                 chat_id=user_id,
-                text="🎉 حساب شما تأیید شد! از /menu استفاده کنید."
+                text="🎉 حساب شما تأیید شد!"
             )
         
         conn.close()
@@ -98,7 +97,7 @@ def handle_admin_callback(bot, update):
     except Exception as e:
         logger.error(f"Error: {e}")
 
-def handle_main_menu(bot, update):
+async def handle_main_menu(update, context):
     text = update.message.text
     
     if text == '👤 پروفایل من':
@@ -111,33 +110,27 @@ def handle_main_menu(bot, update):
         
         if user:
             profile_text = f"👤 نام: {user['first_name']}"
-            update.message.reply_text(profile_text)
+            await update.message.reply_text(profile_text)
         else:
-            update.message.reply_text("❌ اطلاعات یافت نشد.")
+            await update.message.reply_text("❌ اطلاعات یافت نشد.")
     
     elif text == '📚 منابع درسی':
-        update.message.reply_text("📚 به زودی...")
+        await update.message.reply_text("📚 به زودی...")
+    
+    elif text == '📊 گزارش کار روزانه':
+        await update.message.reply_text("📊 به زودی...")
 
 def main():
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    application = Application.builder().token(BOT_TOKEN).build()
     
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CallbackQueryHandler(handle_admin_callback))
-    dp.add_handler(MessageHandler(Filters.text, handle_main_menu))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(handle_admin_callback))
+    application.add_handler(MessageHandler(filters.TEXT, handle_main_menu))
     
-    if "RENDER" in os.environ:
-        port = int(os.environ.get("PORT", 10000))
-        updater.start_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path=BOT_TOKEN
-        )
-        updater.bot.set_webhook(f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}")
-    else:
-        updater.start_polling()
+    logger.info("✅ ربات در حال اجراست...")
     
-    updater.idle()
+    # اجرای ساده - بدون webhook پیچیده
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
